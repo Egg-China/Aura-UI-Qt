@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 5,
+  "id": "dev.aura.ui-qt",
+  "name": "Aura Qt Runtime",
+  "version": "0.1.0",
+  "type": "native",
+  "entrypoint": "bin/aura-ui-qt.exe",
+  "permissions": [
+    "launcher-ui-provider",
+    "native-code",
+    "process",
+    "account",
+    "game-launch",
+    "launcher-ui"
+  ],
+  "requiredPermissions": [
+    "launcher-ui-provider",
+    "native-code",
+    "process"
+  ],
+  "launcherVersion": "*",
+  "runtime": "aura-ui",
+  "abi": 1,
+  "platforms": [
+    "windows-x64"
+  ],
+  "pluginKind": "ui-provider",
+  "executionMode": "isolated"
+}

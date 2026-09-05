@@ -1,0 +1,7 @@
+Aura UI Qt
+Copyright 2026 Aura Launcher contributors
+
+This product is licensed under the Apache License, Version 2.0.
+
+It implements the Aura Launcher `aura.ui.v1` data contract. The implementation
+is independent C++/Qt source code and contains no third-party source code.

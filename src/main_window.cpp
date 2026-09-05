@@ -1,0 +1,281 @@
+﻿// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Aura Launcher contributors
+
+#include "main_window.h"
+
+#include <QFont>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QListWidget>
+#include <QPushButton>
+#include <QShowEvent>
+#include <QTextBrowser>
+#include <QVBoxLayout>
+
+#include <algorithm>
+
+namespace {
+QString optionalText(const BridgeValue &map, const QString &key, const QString &fallback)
+{
+    const std::optional<QString> value = map.optionalString(key);
+    return value.has_value() && !value->isEmpty() ? *value : fallback;
+}
+
+QString optionalInteger(const BridgeValue &map, const QString &key)
+{
+    const BridgeValue *found = map.entry(key);
+    if (found == nullptr || found->type() != BridgeValue::Type::Integer) {
+        return QStringLiteral("0");
+    }
+    return QString::number(found->toInteger());
+}
+} // namespace
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+{
+    buildInterface();
+    setWindowTitle(tr("Aura Launcher — Qt Runtime"));
+    resize(1160, 720);
+    setMinimumSize(960, 640);
+}
+
+void MainWindow::buildInterface()
+{
+    QFrame *root = new QFrame(this);
+    root->setObjectName(QStringLiteral("auraRoot"));
+    QHBoxLayout *layout = new QHBoxLayout(root);
+    layout->setContentsMargins(18, 18, 18, 18);
+    layout->setSpacing(16);
+
+    QVBoxLayout *left = new QVBoxLayout();
+    left->setSpacing(10);
+    QLabel *heading = new QLabel(tr("Instances"), root);
+    heading->setObjectName(QStringLiteral("auraHeading"));
+    m_instances = new QListWidget(root);
+    m_instances->setObjectName(QStringLiteral("auraList"));
+    m_instances->setMinimumWidth(310);
+    m_account = new QLabel(tr("Account: not synchronized"), root);
+    m_account->setObjectName(QStringLiteral("auraMuted"));
+    m_launch = new QPushButton(tr("Launch selected"), root);
+    m_refresh = new QPushButton(tr("Refresh state"), root);
+    m_shutdown = new QPushButton(tr("Ask launcher to exit"), root);
+    m_launch->setEnabled(false);
+    left->addWidget(heading);
+    left->addWidget(m_instances, 1);
+    left->addWidget(m_account);
+    left->addWidget(m_launch);
+    left->addWidget(m_refresh);
+    left->addWidget(m_shutdown);
+
+    QVBoxLayout *right = new QVBoxLayout();
+    right->setSpacing(10);
+    m_route = new QLabel(tr("Route: home"), root);
+    m_route->setObjectName(QStringLiteral("auraRoute"));
+    m_details = new QTextBrowser(root);
+    m_details->setOpenExternalLinks(false);
+    QLabel *contributionsHeading = new QLabel(tr("Plugin contributions"), root);
+    contributionsHeading->setObjectName(QStringLiteral("auraHeading"));
+    m_contributions = new QListWidget(root);
+    m_contributions->setMaximumHeight(165);
+    m_status = new QLabel(tr("Waiting for the launcher handshake"), root);
+    m_status->setObjectName(QStringLiteral("auraMuted"));
+    right->addWidget(m_route);
+    right->addWidget(m_details, 1);
+    right->addWidget(contributionsHeading);
+    right->addWidget(m_contributions);
+    right->addWidget(m_status);
+
+    layout->addLayout(left, 0);
+    layout->addLayout(right, 1);
+    setCentralWidget(root);
+
+    setStyleSheet(QStringLiteral(
+        "QFrame#auraRoot { background: #141518; }"
+        "QLabel { color: #e5e7eb; font-size: 14px; }"
+        "QLabel#auraHeading { color: #ffffff; font-size: 18px; font-weight: 700; }"
+        "QLabel#auraRoute { color: #22c55e; font-size: 16px; font-weight: 600; }"
+        "QLabel#auraMuted { color: #94a3b8; }"
+        "QListWidget, QTextBrowser {"
+        " background: #191b1f; border: 1px solid #323439; border-radius: 7px;"
+        " color: #e5e7eb; padding: 6px; selection-background-color: #166534;"
+        " selection-color: #ffffff; }"
+        "QPushButton {"
+        " background: #26282d; border: 1px solid #3b3d43; border-radius: 6px;"
+        " color: #f8fafc; padding: 8px 12px; }"
+        "QPushButton:disabled { color: #64748b; }"
+        "QPushButton:hover:enabled { background: #33363d; }"));
+
+    connect(m_instances, &QListWidget::currentItemChanged, this, &MainWindow::updateSelection);
+    connect(m_launch, &QPushButton::clicked, this, &MainWindow::emitLaunch);
+    connect(m_refresh, &QPushButton::clicked, this, &MainWindow::refreshRequested);
+    connect(m_shutdown, &QPushButton::clicked, this, &MainWindow::launcherShutdownRequested);
+    connect(m_contributions, &QListWidget::itemDoubleClicked, this, [this]() {
+        emitPluginAction();
+    });
+}
+
+void MainWindow::showEvent(QShowEvent *event)
+{
+    QMainWindow::showEvent(event);
+    if (!m_readyEmitted) {
+        m_readyEmitted = true;
+        emit interfaceReady();
+    }
+}
+
+void MainWindow::renderInstances(const BridgeValue &instances)
+{
+    m_models.clear();
+    m_instances->clear();
+    if (instances.type() != BridgeValue::Type::Array) {
+        m_launch->setEnabled(false);
+        return;
+    }
+    for (const BridgeValue &raw : instances.arrayValues()) {
+        const std::optional<QString> id = raw.optionalString(QStringLiteral("id"));
+        if (!id.has_value()) {
+            continue;
+        }
+        Instance instance;
+        instance.id = *id;
+        instance.name = optionalText(raw, QStringLiteral("name"), instance.id);
+        instance.version = optionalText(raw, QStringLiteral("version"), tr("unknown"));
+        instance.loader = optionalText(raw, QStringLiteral("loader"), tr("Vanilla"));
+        instance.lastPlayed = optionalText(raw, QStringLiteral("lastPlayed"), tr("never"));
+        instance.playTime = optionalText(raw, QStringLiteral("playTime"), tr("0 hours"));
+        instance.modCount = optionalText(raw, QStringLiteral("modCount"), QStringLiteral("0"));
+        if (raw.entry(QStringLiteral("modCount")) != nullptr) {
+            instance.modCount = optionalInteger(raw, QStringLiteral("modCount"));
+        }
+        instance.description = optionalText(raw, QStringLiteral("description"), tr("No description"));
+        const BridgeValue *favorite = raw.entry(QStringLiteral("isFavorite"));
+        instance.favorite = favorite != nullptr && favorite->type() == BridgeValue::Type::Boolean
+            && favorite->toBoolean();
+        m_models.push_back(instance);
+    }
+    for (const Instance &instance : m_models) {
+        const QString title = instance.favorite
+            ? QStringLiteral("%1  ★").arg(instance.name)
+            : instance.name;
+        QListWidgetItem *item = new QListWidgetItem(m_instances);
+        item->setText(QStringLiteral("%1\n%2 · %3").arg(title, instance.loader, instance.version));
+        item->setData(Qt::UserRole, instance.id);
+    }
+    if (m_instances->count() > 0) {
+        m_instances->setCurrentRow(0);
+    } else {
+        updateDetails();
+    }
+}
+void MainWindow::renderAccounts(const BridgeValue &accounts)
+{
+    QString label = tr("Account: not synchronized");
+    if (accounts.type() == BridgeValue::Type::Array && !accounts.arrayValues().empty()) {
+        const BridgeValue &first = accounts.arrayValues().front();
+        const std::optional<QString> username = first.optionalString(QStringLiteral("username"));
+        if (username.has_value()) {
+            label = tr("Account: %1").arg(*username);
+        }
+    }
+    m_account->setText(label);
+}
+
+void MainWindow::renderContributions(const BridgeValue &contributions)
+{
+    m_contributions->clear();
+    if (contributions.type() != BridgeValue::Type::Array) {
+        return;
+    }
+    for (const BridgeValue &contribution : contributions.arrayValues()) {
+        const std::optional<QString> id = contribution.optionalString(QStringLiteral("id"));
+        const std::optional<QString> label = contribution.optionalString(QStringLiteral("label"));
+        if (!id.has_value() || !label.has_value()) {
+            continue;
+        }
+        QListWidgetItem *item = new QListWidgetItem(m_contributions);
+        item->setText(*label);
+        item->setData(Qt::UserRole, *id);
+        item->setToolTip(tr("Double-click to invoke %1").arg(*id));
+    }
+}
+
+void MainWindow::setSnapshot(const BridgeValue &snapshot)
+{
+    const auto field = [&snapshot](const QString &key) -> BridgeValue {
+        const BridgeValue *found = snapshot.entry(key);
+        return found == nullptr ? BridgeValue::nullValue() : *found;
+    };
+    renderInstances(field(QStringLiteral("instances")));
+    renderAccounts(field(QStringLiteral("accounts")));
+    renderContributions(field(QStringLiteral("pluginContributions")));
+    showNotification(tr("Aura"), tr("Launcher state synchronized"));
+}
+
+void MainWindow::setRoute(const QString &route)
+{
+    m_route->setText(tr("Route: %1").arg(route));
+}
+
+void MainWindow::showNotification(const QString &title, const QString &message)
+{
+    m_status->setText(QStringLiteral("%1 — %2").arg(title, message));
+}
+
+void MainWindow::updateSelection()
+{
+    updateDetails();
+    m_launch->setEnabled(!selectedInstanceId().isEmpty());
+}
+
+void MainWindow::updateDetails()
+{
+    const QString id = selectedInstanceId();
+    const auto found = std::find_if(m_models.cbegin(), m_models.cend(),
+                                    [&id](const Instance &candidate) { return candidate.id == id; });
+    if (found == m_models.cend()) {
+        m_details->setHtml(QStringLiteral("<h2>%1</h2><p>%2</p>")
+                               .arg(tr("No instance"), tr("The launcher did not provide an instance.")));
+        return;
+    }
+    m_details->setHtml(QStringLiteral(
+        "<h2>%1</h2>"
+        "<p><b>ID:</b> %2</p>"
+        "<p><b>Version:</b> %3 &nbsp; <b>Loader:</b> %4</p>"
+        "<p><b>Last played:</b> %5 &nbsp; <b>Play time:</b> %6</p>"
+        "<p><b>Mods:</b> %7</p>"
+        "<p>%8</p>")
+        .arg(found->name.toHtmlEscaped(), found->id.toHtmlEscaped(),
+             found->version.toHtmlEscaped(), found->loader.toHtmlEscaped(),
+             found->lastPlayed.toHtmlEscaped(), found->playTime.toHtmlEscaped(),
+             found->modCount.toHtmlEscaped(), found->description.toHtmlEscaped()));
+}
+
+QString MainWindow::selectedInstanceId() const
+{
+    QListWidgetItem *item = m_instances->currentItem();
+    return item == nullptr ? QString() : item->data(Qt::UserRole).toString();
+}
+
+void MainWindow::emitLaunch()
+{
+    const QString id = selectedInstanceId();
+    if (!id.isEmpty()) {
+        emit launchRequested(id);
+        showNotification(tr("Launch"), tr("Requested %1").arg(id));
+    }
+}
+
+void MainWindow::emitPluginAction()
+{
+    QListWidgetItem *item = m_contributions->currentItem();
+    if (item == nullptr) {
+        return;
+    }
+    const QString id = item->data(Qt::UserRole).toString();
+    if (!id.isEmpty()) {
+        emit pluginActionRequested(id);
+        showNotification(tr("Plugin"), tr("Requested %1").arg(id));
+    }
+}

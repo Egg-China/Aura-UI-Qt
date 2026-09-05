@@ -1,0 +1,7 @@
+build/
+dist/
+CMakeUserPresets.json
+*.npl
+*.sha256
+.DS_Store
+Thumbs.db
