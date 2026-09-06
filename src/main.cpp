@@ -6,7 +6,7 @@
 #include "runtime_controller.h"
 
 #include <QApplication>
-#include <QCommandLineParser>
+#include <QStringList>
 
 int main(int argc, char *argv[])
 {
@@ -15,11 +15,8 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName(QStringLiteral("Aura UI Qt"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
-    QCommandLineParser parser;
-    parser.setOptionsAfterPositionalArgumentsMode(QCommandLineParser::ParseAsPositionalArguments);
-    parser.addHelpOption();
-    parser.process(application.arguments());
-    if (parser.positionalArguments() != QStringList{QStringLiteral("--stdio")}) {
+    const QStringList arguments = QCoreApplication::arguments();
+    if (arguments.size() != 2 || arguments.at(1) != QStringLiteral("--stdio")) {
         return 2;
     }
 
