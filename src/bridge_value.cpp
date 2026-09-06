@@ -196,8 +196,14 @@ BridgeValue BridgeValue::map(std::vector<MapEntry> entries)
 {
     BridgeValue result;
     result.m_type = Type::Map;
-    result.m_map = std::move(entries);
+    result.m_map = std::make_shared<std::vector<MapEntry>>(std::move(entries));
     return result;
+}
+
+const std::vector<BridgeValue::MapEntry> &BridgeValue::mapEntries() const
+{
+    static const std::vector<MapEntry> empty;
+    return m_map == nullptr ? empty : *m_map;
 }
 bool BridgeValue::operator==(const BridgeValue &other) const
 {
@@ -220,21 +226,21 @@ bool BridgeValue::operator==(const BridgeValue &other) const
     case Type::Array:
         return m_array == other.m_array;
     case Type::Map:
-        return m_map == other.m_map;
+        return mapEntries() == other.mapEntries();
     }
     return false;
 }
 
 const BridgeValue *BridgeValue::entry(const QString &key) const
 {
-    if (m_type != Type::Map) {
+    if (m_type != Type::Map || m_map == nullptr) {
         return nullptr;
     }
-    const auto found = std::find_if(m_map.cbegin(), m_map.cend(),
+    const auto found = std::find_if(m_map->cbegin(), m_map->cend(),
                                     [&key](const MapEntry &candidate) {
                                         return candidate.key == key;
                                     });
-    return found == m_map.cend() ? nullptr : &found->value;
+    return found == m_map->cend() ? nullptr : &found->value;
 }
 
 std::optional<QString> BridgeValue::optionalString(const QString &key) const
@@ -297,8 +303,8 @@ void BridgeValue::encodeInto(QByteArray &output, int depth) const
         break;
     case Type::Map:
         appendByte(output, 0x07);
-        appendContainerHeader(output, m_map.size());
-        for (const MapEntry &item : m_map) {
+        appendContainerHeader(output, mapEntries().size());
+        for (const MapEntry &item : mapEntries()) {
             appendByte(output, kValueHeader);
             appendString(output, item.key);
             item.value.encodeInto(output, depth + 1);

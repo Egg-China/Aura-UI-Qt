@@ -8,6 +8,7 @@
 #include <QString>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -40,7 +41,7 @@ public:
     QString toString() const { return m_string; }
     QByteArray toBytes() const { return m_bytes; }
     const std::vector<BridgeValue> &arrayValues() const { return m_array; }
-    const std::vector<MapEntry> &mapEntries() const { return m_map; }
+    const std::vector<MapEntry> &mapEntries() const;
 
     bool operator==(const BridgeValue &other) const;
     const BridgeValue *entry(const QString &key) const;
@@ -61,7 +62,7 @@ private:
     QString m_string;
     QByteArray m_bytes;
     std::vector<BridgeValue> m_array;
-    std::vector<MapEntry> m_map;
+    std::shared_ptr<std::vector<MapEntry>> m_map;
 };
 
 struct BridgeValueMapEntry {
