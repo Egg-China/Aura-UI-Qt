@@ -18,6 +18,7 @@ add_library(aura_ui_protocol STATIC
     src/protocol.h
 )
 target_link_libraries(aura_ui_protocol PUBLIC Qt6::Core)
+target_include_directories(aura_ui_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_executable(aura-ui-qt
     src/main.cpp
