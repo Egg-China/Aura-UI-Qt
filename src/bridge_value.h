@@ -12,17 +12,12 @@
 #include <vector>
 
 /// One value in the frozen Aura Bridge Value v1 tree.
+struct BridgeValueMapEntry;
+
 class BridgeValue {
 public:
     enum class Type { Null, Boolean, Integer, Float, String, Bytes, Array, Map };
-    struct MapEntry {
-        QString key;
-        BridgeValue value;
-        bool operator==(const MapEntry &other) const
-        {
-            return key == other.key && value == other.value;
-        }
-    };
+    using MapEntry = BridgeValueMapEntry;
 
     BridgeValue() = default;
 
@@ -67,6 +62,16 @@ private:
     QByteArray m_bytes;
     std::vector<BridgeValue> m_array;
     std::vector<MapEntry> m_map;
+};
+
+struct BridgeValueMapEntry {
+    QString key;
+    BridgeValue value;
+
+    bool operator==(const BridgeValueMapEntry &other) const
+    {
+        return key == other.key && value == other.value;
+    }
 };
 
 #endif // AURA_UI_QT_BRIDGE_VALUE_H
