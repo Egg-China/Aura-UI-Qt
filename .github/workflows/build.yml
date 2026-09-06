@@ -45,6 +45,8 @@ jobs:
         with:
           version: '6.8.3'
           arch: win64_mingw
+          tools: tools_mingw1310
+          add-tools-to-path: true
           cache: true
 
       - name: Install Qt for Unix
