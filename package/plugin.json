@@ -2,7 +2,7 @@
   "schemaVersion": 5,
   "id": "dev.aura.ui-qt",
   "name": "Aura Qt Runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "native",
   "entrypoint": "bin/aura-ui-qt.exe",
   "permissions": [
