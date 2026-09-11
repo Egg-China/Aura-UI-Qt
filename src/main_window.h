@@ -23,6 +23,8 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
 
     void setSnapshot(const BridgeValue &snapshot);
+    void applyInstances(const BridgeValue &instances);
+    void applyAccounts(const BridgeValue &accounts);
     void setRoute(const QString &route);
     void showNotification(const QString &title, const QString &message);
 

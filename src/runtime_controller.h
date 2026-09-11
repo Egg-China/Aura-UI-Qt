@@ -35,12 +35,17 @@ private:
     bool sendProtocolError(std::int64_t requestId, const QString &code, const QString &message);
     bool sendFrontendRequest(const QString &method, const BridgeValue &params);
     void requestLauncherState();
+    void requestAuraCoreState();
+    void applyAuraCoreInstances(const BridgeValue &instances);
+    void applyAuraCoreAccounts(const BridgeValue &accounts);
+    BridgeValue normalizeAuraCoreInstance(const BridgeValue &raw) const;
     void failSession(const QString &reason);
     void finishSession();
 
     MainWindow *m_window = nullptr;
     std::unordered_map<std::int64_t, QString> m_pending;
     std::int64_t m_nextRequestId = 6;
+    QString m_coreEngine = QStringLiteral("hmcl");
     bool m_helloSeen = false;
     bool m_snapshotSeen = false;
     bool m_windowReady = false;

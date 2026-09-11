@@ -173,8 +173,30 @@ void MainWindow::renderAccounts(const BridgeValue &accounts)
 {
     QString label = tr("Account: not synchronized");
     if (accounts.type() == BridgeValue::Type::Array && !accounts.arrayValues().empty()) {
-        const BridgeValue &first = accounts.arrayValues().front();
-        const std::optional<QString> username = first.optionalString(QStringLiteral("username"));
+        const BridgeValue *selected = nullptr;
+        for (const BridgeValue &account : accounts.arrayValues()) {
+            if (!account.isMap()) {
+                continue;
+            }
+            const BridgeValue *active = account.entry(QStringLiteral("isActive"));
+            if (active != nullptr && active->type() == BridgeValue::Type::Boolean && active->toBoolean()) {
+                selected = &account;
+                break;
+            }
+            const BridgeValue *defaultFlag = account.entry(QStringLiteral("isDefault"));
+            if (defaultFlag != nullptr && defaultFlag->type() == BridgeValue::Type::Boolean
+                && defaultFlag->toBoolean()) {
+                selected = &account;
+                break;
+            }
+        }
+        if (selected == nullptr) {
+            selected = &accounts.arrayValues().front();
+        }
+        std::optional<QString> username = selected->optionalString(QStringLiteral("username"));
+        if (!username.has_value()) {
+            username = selected->optionalString(QStringLiteral("profileName"));
+        }
         if (username.has_value()) {
             label = tr("Account: %1").arg(*username);
         }
@@ -211,6 +233,16 @@ void MainWindow::setSnapshot(const BridgeValue &snapshot)
     renderAccounts(field(QStringLiteral("accounts")));
     renderContributions(field(QStringLiteral("pluginContributions")));
     showNotification(tr("Aura"), tr("Launcher state synchronized"));
+}
+
+void MainWindow::applyInstances(const BridgeValue &instances)
+{
+    renderInstances(instances);
+}
+
+void MainWindow::applyAccounts(const BridgeValue &accounts)
+{
+    renderAccounts(accounts);
 }
 
 void MainWindow::setRoute(const QString &route)

@@ -7,6 +7,8 @@
 
 #include <QCoreApplication>
 #include <QPointer>
+#include <QDateTime>
+#include <QLocale>
 #include <QTimer>
 
 #include <thread>
@@ -241,9 +243,129 @@ void RuntimeController::handleReply(const AuraProtocol::Envelope &reply)
     }
     if (method == QStringLiteral("core.snapshot.get")) {
         m_window->setSnapshot(reply.value);
+        const BridgeValue *settings = reply.value.entry(QStringLiteral("settings"));
+        const BridgeValue *engine = settings == nullptr
+            ? nullptr
+            : settings->entry(QStringLiteral("coreEngine"));
+        if (engine != nullptr && engine->type() == BridgeValue::Type::String) {
+            m_coreEngine = engine->toString();
+        }
+        if (m_coreEngine == QStringLiteral("auracore")) {
+            requestAuraCoreState();
+        }
+        return;
+    }
+    if (method == QStringLiteral("core.auracore.instance.list")) {
+        applyAuraCoreInstances(reply.value);
+        return;
+    }
+    if (method == QStringLiteral("core.auracore.accounts.list")) {
+        applyAuraCoreAccounts(reply.value);
         return;
     }
     m_window->showNotification(tr("Command complete"), method);
+}
+
+void RuntimeController::requestAuraCoreState()
+{
+    sendFrontendRequest(QStringLiteral("core.auracore.instance.list"), BridgeValue::nullValue());
+    sendFrontendRequest(QStringLiteral("core.auracore.accounts.list"), BridgeValue::nullValue());
+}
+
+void RuntimeController::applyAuraCoreInstances(const BridgeValue &instances)
+{
+    if (instances.type() == BridgeValue::Type::Map) {
+        const BridgeValue *error = instances.entry(QStringLiteral("error"));
+        if (error != nullptr && error->type() == BridgeValue::Type::String) {
+            m_window->showNotification(tr("AuraCore"),
+                                       tr("Instance list failed: %1").arg(error->toString()));
+            return;
+        }
+    }
+    if (instances.type() != BridgeValue::Type::Array) {
+        return;
+    }
+    std::vector<BridgeValue> normalized;
+    normalized.reserve(instances.arrayValues().size());
+    for (const BridgeValue &raw : instances.arrayValues()) {
+        if (raw.isMap()) {
+            normalized.push_back(normalizeAuraCoreInstance(raw));
+        }
+    }
+    m_window->applyInstances(BridgeValue::array(std::move(normalized)));
+    m_window->showNotification(tr("AuraCore"), tr("Backend instances synchronized"));
+}
+
+void RuntimeController::applyAuraCoreAccounts(const BridgeValue &accounts)
+{
+    if (accounts.type() == BridgeValue::Type::Map) {
+        const BridgeValue *error = accounts.entry(QStringLiteral("error"));
+        if (error != nullptr && error->type() == BridgeValue::Type::String) {
+            m_window->showNotification(tr("AuraCore"),
+                                       tr("Account list failed: %1").arg(error->toString()));
+            return;
+        }
+    }
+    if (accounts.type() != BridgeValue::Type::Array) {
+        return;
+    }
+    std::vector<BridgeValue> normalized;
+    normalized.reserve(accounts.arrayValues().size());
+    for (const BridgeValue &raw : accounts.arrayValues()) {
+        if (!raw.isMap()) {
+            continue;
+        }
+        std::vector<BridgeValueMapEntry> entries;
+        const std::optional<QString> profileName = raw.optionalString(QStringLiteral("profileName"));
+        if (profileName.has_value()) {
+            entries.push_back({QStringLiteral("username"), BridgeValue::string(*profileName)});
+        }
+        const BridgeValue *defaultFlag = raw.entry(QStringLiteral("isDefault"));
+        const bool isActive = defaultFlag != nullptr
+            && defaultFlag->type() == BridgeValue::Type::Boolean
+            && defaultFlag->toBoolean();
+        entries.push_back({QStringLiteral("isActive"), BridgeValue::boolean(isActive)});
+        normalized.push_back(BridgeValue::map(std::move(entries)));
+    }
+    m_window->applyAccounts(BridgeValue::array(std::move(normalized)));
+}
+
+BridgeValue RuntimeController::normalizeAuraCoreInstance(const BridgeValue &raw) const
+{
+    std::vector<BridgeValueMapEntry> entries;
+    const auto copyString = [&raw, &entries](const QString &from, const QString &to) {
+        const std::optional<QString> value = raw.optionalString(from);
+        if (value.has_value() && !value->isEmpty()) {
+            entries.push_back({to, BridgeValue::string(*value)});
+        }
+    };
+    copyString(QStringLiteral("id"), QStringLiteral("id"));
+    copyString(QStringLiteral("name"), QStringLiteral("name"));
+    copyString(QStringLiteral("gameVersion"), QStringLiteral("version"));
+    copyString(QStringLiteral("loader"), QStringLiteral("loader"));
+    copyString(QStringLiteral("loaderVersion"), QStringLiteral("loaderVersion"));
+    const BridgeValue *modCount = raw.entry(QStringLiteral("modCount"));
+    if (modCount != nullptr
+        && (modCount->type() == BridgeValue::Type::Integer
+            || modCount->type() == BridgeValue::Type::Float)) {
+        entries.push_back({QStringLiteral("modCount"), *modCount});
+    }
+    const BridgeValue *lastLaunch = raw.entry(QStringLiteral("lastLaunch"));
+    if (lastLaunch != nullptr
+        && (lastLaunch->type() == BridgeValue::Type::Integer
+            || lastLaunch->type() == BridgeValue::Type::Float)
+        && lastLaunch->toReal() > 0.0) {
+        const QDateTime lastPlayed = QDateTime::fromMSecsSinceEpoch(
+            static_cast<qint64>(lastLaunch->toReal()));
+        entries.push_back({QStringLiteral("lastPlayed"),
+                           BridgeValue::string(QLocale().toString(lastPlayed, QLocale::ShortFormat))});
+    }
+    const std::optional<QString> group = raw.optionalString(QStringLiteral("group"));
+    if (group.has_value() && !group->isEmpty()) {
+        entries.push_back({QStringLiteral("description"),
+                           BridgeValue::string(tr("AuraCore group: %1").arg(*group))});
+    }
+    return BridgeValue::map(std::move(entries));
 }
 
 void RuntimeController::failSession(const QString &reason)
