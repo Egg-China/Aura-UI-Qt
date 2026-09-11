@@ -3,8 +3,12 @@
 
 #include "main_window.h"
 
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFont>
+#include <QFormLayout>
 #include <QFrame>
+#include <QLineEdit>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -59,13 +63,18 @@ void MainWindow::buildInterface()
     m_account = new QLabel(tr("Account: not synchronized"), root);
     m_account->setObjectName(QStringLiteral("auraMuted"));
     m_launch = new QPushButton(tr("Launch selected"), root);
+    m_import = new QPushButton(tr("Import instance..."), root);
+    m_export = new QPushButton(tr("Export selected..."), root);
     m_refresh = new QPushButton(tr("Refresh state"), root);
     m_shutdown = new QPushButton(tr("Ask launcher to exit"), root);
     m_launch->setEnabled(false);
+    m_export->setEnabled(false);
     left->addWidget(heading);
     left->addWidget(m_instances, 1);
     left->addWidget(m_account);
     left->addWidget(m_launch);
+    left->addWidget(m_import);
+    left->addWidget(m_export);
     left->addWidget(m_refresh);
     left->addWidget(m_shutdown);
 
@@ -109,6 +118,8 @@ void MainWindow::buildInterface()
 
     connect(m_instances, &QListWidget::currentItemChanged, this, &MainWindow::updateSelection);
     connect(m_launch, &QPushButton::clicked, this, &MainWindow::emitLaunch);
+    connect(m_import, &QPushButton::clicked, this, &MainWindow::emitImport);
+    connect(m_export, &QPushButton::clicked, this, &MainWindow::emitExport);
     connect(m_refresh, &QPushButton::clicked, this, &MainWindow::refreshRequested);
     connect(m_shutdown, &QPushButton::clicked, this, &MainWindow::launcherShutdownRequested);
     connect(m_contributions, &QListWidget::itemDoubleClicked, this, [this]() {
@@ -259,6 +270,7 @@ void MainWindow::updateSelection()
 {
     updateDetails();
     m_launch->setEnabled(!selectedInstanceId().isEmpty());
+    m_export->setEnabled(!selectedInstanceId().isEmpty());
 }
 
 void MainWindow::updateDetails()
@@ -288,6 +300,64 @@ QString MainWindow::selectedInstanceId() const
 {
     QListWidgetItem *item = m_instances->currentItem();
     return item == nullptr ? QString() : item->data(Qt::UserRole).toString();
+}
+
+void MainWindow::emitImport()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Import instance"));
+    QFormLayout *form = new QFormLayout(&dialog);
+    QLineEdit *source = new QLineEdit(&dialog);
+    source->setPlaceholderText(tr("D:/Packs/instance.zip or https://example.com/pack.zip"));
+    QLineEdit *name = new QLineEdit(&dialog);
+    QLineEdit *group = new QLineEdit(&dialog);
+    form->addRow(tr("Archive path or URL"), source);
+    form->addRow(tr("Instance name"), name);
+    form->addRow(tr("Group (optional)"), group);
+    QDialogButtonBox *buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    form->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted
+        || source->text().trimmed().isEmpty()
+        || name->text().trimmed().isEmpty()) {
+        return;
+    }
+    emit importRequested(source->text().trimmed(), name->text().trimmed(), group->text().trimmed());
+}
+
+void MainWindow::emitExport()
+{
+    const QString instanceId = selectedInstanceId();
+    if (instanceId.isEmpty()) {
+        return;
+    }
+    QString instanceName = instanceId;
+    for (const Instance &instance : m_models) {
+        if (instance.id == instanceId) {
+            instanceName = instance.name;
+            break;
+        }
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Export MultiMC archive"));
+    QFormLayout *form = new QFormLayout(&dialog);
+    QLineEdit *output = new QLineEdit(instanceName + QStringLiteral(".zip"), &dialog);
+    QLineEdit *name = new QLineEdit(instanceName, &dialog);
+    form->addRow(tr("Output file"), output);
+    form->addRow(tr("Packaged name"), name);
+    QDialogButtonBox *buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    form->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted
+        || output->text().trimmed().isEmpty()
+        || name->text().trimmed().isEmpty()) {
+        return;
+    }
+    emit exportRequested(instanceId, output->text().trimmed(), name->text().trimmed());
 }
 
 void MainWindow::emitLaunch()

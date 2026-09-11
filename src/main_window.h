@@ -31,6 +31,8 @@ public:
 signals:
     void interfaceReady();
     void launchRequested(const QString &instanceId);
+    void importRequested(const QString &source, const QString &name, const QString &group);
+    void exportRequested(const QString &instanceId, const QString &output, const QString &name);
     void refreshRequested();
     void pluginActionRequested(const QString &actionId);
     void launcherShutdownRequested();
@@ -41,6 +43,8 @@ protected:
 private slots:
     void updateSelection();
     void emitLaunch();
+    void emitImport();
+    void emitExport();
     void emitPluginAction();
 
 private:
@@ -70,6 +74,8 @@ private:
     QLabel *m_route = nullptr;
     QLabel *m_status = nullptr;
     QPushButton *m_launch = nullptr;
+    QPushButton *m_import = nullptr;
+    QPushButton *m_export = nullptr;
     QPushButton *m_refresh = nullptr;
     QPushButton *m_shutdown = nullptr;
     std::vector<Instance> m_models;

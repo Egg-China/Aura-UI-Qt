@@ -24,6 +24,36 @@ RuntimeController::RuntimeController(MainWindow *window, QObject *parent)
         sendFrontendRequest(QStringLiteral("core.instance.launch"),
                             BridgeValue::map({{QStringLiteral("id"), BridgeValue::string(id)}}));
     });
+    connect(m_window, &MainWindow::importRequested, this,
+            [this](const QString &source, const QString &name, const QString &group) {
+        if (m_coreEngine != QStringLiteral("auracore")) {
+            m_window->showNotification(tr("Import"),
+                                       tr("Switch the launcher core to AuraCore first"));
+            return;
+        }
+        std::vector<BridgeValueMapEntry> params;
+        params.push_back({QStringLiteral("source"), BridgeValue::string(source)});
+        params.push_back({QStringLiteral("name"), BridgeValue::string(name)});
+        params.push_back({QStringLiteral("group"),
+                          group.isEmpty() ? BridgeValue::nullValue() : BridgeValue::string(group)});
+        sendFrontendRequest(QStringLiteral("core.auracore.instance.import"),
+                            BridgeValue::map(std::move(params)));
+    });
+    connect(m_window, &MainWindow::exportRequested, this,
+            [this](const QString &instanceId, const QString &output, const QString &name) {
+        if (m_coreEngine == QStringLiteral("auracore")) {
+            m_window->showNotification(
+                tr("Export"),
+                tr("MultiMC export targets launcher-side instances; switch to the HMCL engine"));
+            return;
+        }
+        std::vector<BridgeValueMapEntry> params;
+        params.push_back({QStringLiteral("id"), BridgeValue::string(instanceId)});
+        params.push_back({QStringLiteral("output"), BridgeValue::string(output)});
+        params.push_back({QStringLiteral("name"), BridgeValue::string(name)});
+        sendFrontendRequest(QStringLiteral("core.instance.export.multimc"),
+                            BridgeValue::map(std::move(params)));
+    });
     connect(m_window, &MainWindow::refreshRequested, this, [this]() {
         requestLauncherState();
     });
@@ -255,6 +285,59 @@ void RuntimeController::handleReply(const AuraProtocol::Envelope &reply)
         }
         return;
     }
+    if (method == QStringLiteral("core.auracore.instance.import")) {
+        const BridgeValue *error = reply.value.entry(QStringLiteral("error"));
+        if (error != nullptr && error->type() == BridgeValue::Type::String) {
+            m_window->showNotification(tr("Import failed"), error->toString());
+            return;
+        }
+        const BridgeValue *taskId = reply.value.entry(QStringLiteral("taskId"));
+        if (taskId != nullptr && taskId->type() == BridgeValue::Type::String
+            && !taskId->toString().isEmpty()) {
+            startImportTaskPolling(taskId->toString());
+            m_window->showNotification(tr("Import"), tr("Import task started"));
+        } else {
+            m_window->showNotification(tr("Import failed"),
+                                       tr("The backend did not return a task id"));
+        }
+        return;
+    }
+    if (method == QStringLiteral("core.auracore.task.status")) {
+        if (m_importTaskId.isEmpty()) {
+            return;
+        }
+        const BridgeValue *state = reply.value.entry(QStringLiteral("state"));
+        const BridgeValue *error = reply.value.entry(QStringLiteral("error"));
+        if (state == nullptr || state->type() != BridgeValue::Type::String) {
+            return;
+        }
+        const QString stateName = state->toString();
+        if (stateName == QStringLiteral("succeeded")) {
+            stopImportTaskPolling();
+            m_window->showNotification(tr("Import"), tr("Import completed"));
+            requestLauncherState();
+        } else if (stateName == QStringLiteral("failed") || stateName == QStringLiteral("aborted")) {
+            const QString detail = error != nullptr && error->type() == BridgeValue::Type::String
+                ? error->toString()
+                : stateName;
+            stopImportTaskPolling();
+            m_window->showNotification(tr("Import failed"), detail);
+        }
+        return;
+    }
+    if (method == QStringLiteral("core.instance.export.multimc")) {
+        const BridgeValue *error = reply.value.entry(QStringLiteral("error"));
+        if (error != nullptr && error->type() == BridgeValue::Type::String) {
+            m_window->showNotification(tr("Export failed"), error->toString());
+            return;
+        }
+        const BridgeValue *output = reply.value.entry(QStringLiteral("output"));
+        m_window->showNotification(tr("Export"),
+                                   output != nullptr && output->type() == BridgeValue::Type::String
+                                       ? tr("Archive written: %1").arg(output->toString())
+                                       : tr("Archive written"));
+        return;
+    }
     if (method == QStringLiteral("core.auracore.instance.list")) {
         applyAuraCoreInstances(reply.value);
         return;
@@ -270,6 +353,35 @@ void RuntimeController::requestAuraCoreState()
 {
     sendFrontendRequest(QStringLiteral("core.auracore.instance.list"), BridgeValue::nullValue());
     sendFrontendRequest(QStringLiteral("core.auracore.accounts.list"), BridgeValue::nullValue());
+}
+
+void RuntimeController::startImportTaskPolling(const QString &taskId)
+{
+    stopImportTaskPolling();
+    m_importTaskId = taskId;
+    m_importPollTimer = new QTimer(this);
+    m_importPollTimer->setInterval(2000);
+    connect(m_importPollTimer, &QTimer::timeout, this, [this]() {
+        if (m_importTaskId.isEmpty()) {
+            stopImportTaskPolling();
+            return;
+        }
+        std::vector<BridgeValueMapEntry> params;
+        params.push_back({QStringLiteral("taskId"), BridgeValue::string(m_importTaskId)});
+        sendFrontendRequest(QStringLiteral("core.auracore.task.status"),
+                            BridgeValue::map(std::move(params)));
+    });
+    m_importPollTimer->start();
+}
+
+void RuntimeController::stopImportTaskPolling()
+{
+    m_importTaskId.clear();
+    if (m_importPollTimer != nullptr) {
+        m_importPollTimer->stop();
+        m_importPollTimer->deleteLater();
+        m_importPollTimer = nullptr;
+    }
 }
 
 void RuntimeController::applyAuraCoreInstances(const BridgeValue &instances)

@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 class MainWindow;
+class QTimer;
 
 class RuntimeController final : public QObject {
     Q_OBJECT
@@ -36,6 +37,8 @@ private:
     bool sendFrontendRequest(const QString &method, const BridgeValue &params);
     void requestLauncherState();
     void requestAuraCoreState();
+    void startImportTaskPolling(const QString &taskId);
+    void stopImportTaskPolling();
     void applyAuraCoreInstances(const BridgeValue &instances);
     void applyAuraCoreAccounts(const BridgeValue &accounts);
     BridgeValue normalizeAuraCoreInstance(const BridgeValue &raw) const;
@@ -46,6 +49,8 @@ private:
     std::unordered_map<std::int64_t, QString> m_pending;
     std::int64_t m_nextRequestId = 6;
     QString m_coreEngine = QStringLiteral("hmcl");
+    QString m_importTaskId;
+    QTimer *m_importPollTimer = nullptr;
     bool m_helloSeen = false;
     bool m_snapshotSeen = false;
     bool m_windowReady = false;
