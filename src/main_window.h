@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Aura Launcher contributors
 
 #ifndef AURA_UI_QT_MAIN_WINDOW_H
@@ -7,10 +7,13 @@
 #include "bridge_value.h"
 
 #include <QMainWindow>
+#include <QPointer>
 #include <QString>
+#include <QStringList>
 
 #include <vector>
 
+class ExportDialog;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -27,12 +30,15 @@ public:
     void applyAccounts(const BridgeValue &accounts);
     void setRoute(const QString &route);
     void showNotification(const QString &title, const QString &message);
+    void applyExportFiles(const BridgeValue &listing);
 
 signals:
     void interfaceReady();
     void launchRequested(const QString &instanceId);
     void importRequested(const QString &source, const QString &name, const QString &group);
-    void exportRequested(const QString &instanceId, const QString &output, const QString &name);
+    void exportRequested(const QString &instanceId, const QString &output, const QString &name,
+                         const QStringList &whitelist);
+    void exportFilesRequested(const QString &instanceId, const QString &path);
     void refreshRequested();
     void pluginActionRequested(const QString &actionId);
     void launcherShutdownRequested();
@@ -78,6 +84,7 @@ private:
     QPushButton *m_export = nullptr;
     QPushButton *m_refresh = nullptr;
     QPushButton *m_shutdown = nullptr;
+    QPointer<ExportDialog> m_exportDialog;
     std::vector<Instance> m_models;
     bool m_readyEmitted = false;
 };

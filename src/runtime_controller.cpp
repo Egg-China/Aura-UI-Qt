@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Aura Launcher contributors
 
 #include "runtime_controller.h"
@@ -40,7 +40,8 @@ RuntimeController::RuntimeController(MainWindow *window, QObject *parent)
                             BridgeValue::map(std::move(params)));
     });
     connect(m_window, &MainWindow::exportRequested, this,
-            [this](const QString &instanceId, const QString &output, const QString &name) {
+            [this](const QString &instanceId, const QString &output, const QString &name,
+                   const QStringList &whitelist) {
         if (m_coreEngine == QStringLiteral("auracore")) {
             m_window->showNotification(
                 tr("Export"),
@@ -51,8 +52,23 @@ RuntimeController::RuntimeController(MainWindow *window, QObject *parent)
         params.push_back({QStringLiteral("id"), BridgeValue::string(instanceId)});
         params.push_back({QStringLiteral("output"), BridgeValue::string(output)});
         params.push_back({QStringLiteral("name"), BridgeValue::string(name)});
+        if (!whitelist.isEmpty()) {
+            std::vector<BridgeValue> paths;
+            paths.reserve(static_cast<std::size_t>(whitelist.size()));
+            for (const QString &path : whitelist) {
+                paths.push_back(BridgeValue::string(path));
+            }
+            params.push_back({QStringLiteral("whitelist"), BridgeValue::array(std::move(paths))});
+        }
         sendFrontendRequest(QStringLiteral("core.instance.export.multimc"),
                             BridgeValue::map(std::move(params)));
+    });
+    connect(m_window, &MainWindow::exportFilesRequested, this,
+            [this](const QString &instanceId, const QString &path) {
+        sendFrontendRequest(
+            QStringLiteral("core.instance.export.files.list"),
+            BridgeValue::map({{QStringLiteral("id"), BridgeValue::string(instanceId)},
+                              {QStringLiteral("path"), BridgeValue::string(path)}}));
     });
     connect(m_window, &MainWindow::refreshRequested, this, [this]() {
         requestLauncherState();
@@ -323,6 +339,10 @@ void RuntimeController::handleReply(const AuraProtocol::Envelope &reply)
             stopImportTaskPolling();
             m_window->showNotification(tr("Import failed"), detail);
         }
+        return;
+    }
+    if (method == QStringLiteral("core.instance.export.files.list")) {
+        m_window->applyExportFiles(reply.value);
         return;
     }
     if (method == QStringLiteral("core.instance.export.multimc")) {

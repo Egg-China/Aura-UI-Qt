@@ -1,7 +1,8 @@
-﻿// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Aura Launcher contributors
 
 #include "main_window.h"
+#include "export_dialog.h"
 
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -340,24 +341,64 @@ void MainWindow::emitExport()
             break;
         }
     }
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Export MultiMC archive"));
-    QFormLayout *form = new QFormLayout(&dialog);
-    QLineEdit *output = new QLineEdit(instanceName + QStringLiteral(".zip"), &dialog);
-    QLineEdit *name = new QLineEdit(instanceName, &dialog);
-    form->addRow(tr("Output file"), output);
-    form->addRow(tr("Packaged name"), name);
-    QDialogButtonBox *buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    form->addRow(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    if (dialog.exec() != QDialog::Accepted
-        || output->text().trimmed().isEmpty()
-        || name->text().trimmed().isEmpty()) {
+    auto *dialog = new ExportDialog(instanceName, this);
+    m_exportDialog = dialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog, &ExportDialog::pathRequested, this, [this, instanceId](const QString &path) {
+        emit exportFilesRequested(instanceId, path);
+    });
+    connect(dialog, &ExportDialog::acceptedExport, this,
+            [this, instanceId](const QString &output, const QString &name,
+                               const QStringList &whitelist) {
+        emit exportRequested(instanceId, output, name, whitelist);
+    });
+    dialog->show();
+    dialog->requestRoot();
+}
+
+void MainWindow::applyExportFiles(const BridgeValue &listing)
+{
+    if (m_exportDialog == nullptr || listing.type() != BridgeValue::Type::Map) {
         return;
     }
-    emit exportRequested(instanceId, output->text().trimmed(), name->text().trimmed());
+    const BridgeValue *error = listing.entry(QStringLiteral("error"));
+    if (error != nullptr && error->type() == BridgeValue::Type::String) {
+        m_exportDialog->applyListingError(error->toString());
+        return;
+    }
+    const std::optional<QString> path = listing.optionalString(QStringLiteral("path"));
+    const BridgeValue *entries = listing.entry(QStringLiteral("entries"));
+    const BridgeValue *truncated = listing.entry(QStringLiteral("truncated"));
+    if (!path.has_value() || entries == nullptr
+            || entries->type() != BridgeValue::Type::Array) {
+        m_exportDialog->applyListingError(tr("Malformed export file listing"));
+        return;
+    }
+    std::vector<ExportFileEntryData> parsed;
+    for (const BridgeValue &raw : entries->arrayValues()) {
+        if (raw.type() != BridgeValue::Type::Map) {
+            continue;
+        }
+        const std::optional<QString> name = raw.optionalString(QStringLiteral("name"));
+        const std::optional<QString> entryPath = raw.optionalString(QStringLiteral("path"));
+        if (!name.has_value() || !entryPath.has_value()) {
+            continue;
+        }
+        ExportFileEntryData entry{*name, *entryPath, false, false};
+        const BridgeValue *directory = raw.entry(QStringLiteral("directory"));
+        const BridgeValue *suggested = raw.entry(QStringLiteral("suggested"));
+        entry.directory = directory != nullptr
+            && directory->type() == BridgeValue::Type::Boolean
+            && directory->toBoolean();
+        entry.suggested = suggested != nullptr
+            && suggested->type() == BridgeValue::Type::Boolean
+            && suggested->toBoolean();
+        parsed.push_back(entry);
+    }
+    const bool truncatedFlag = truncated != nullptr
+        && truncated->type() == BridgeValue::Type::Boolean
+        && truncated->toBoolean();
+    m_exportDialog->applyListing(*path, parsed, truncatedFlag);
 }
 
 void MainWindow::emitLaunch()

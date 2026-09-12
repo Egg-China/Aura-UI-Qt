@@ -12,6 +12,8 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Test)
 add_library(aura_ui_protocol STATIC
     src/bridge_value.cpp
     src/bridge_value.h
+    src/export_selection.cpp
+    src/export_selection.h
     src/frame.cpp
     src/frame.h
     src/protocol.cpp
@@ -22,6 +24,8 @@ target_include_directories(aura_ui_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/s
 
 add_executable(aura-ui-qt
     src/main.cpp
+    src/export_dialog.cpp
+    src/export_dialog.h
     src/main_window.cpp
     src/main_window.h
     src/runtime_controller.cpp
@@ -32,9 +36,13 @@ target_link_libraries(aura-ui-qt PRIVATE aura_ui_protocol Qt6::Widgets)
 add_executable(aura_bridge_value_tests tests/bridge_value_tests.cpp)
 target_link_libraries(aura_bridge_value_tests PRIVATE aura_ui_protocol Qt6::Test)
 
+add_executable(aura_export_selection_tests tests/export_selection_tests.cpp)
+target_link_libraries(aura_export_selection_tests PRIVATE aura_ui_protocol Qt6::Test)
+
 include(CTest)
 if(BUILD_TESTING)
     add_test(NAME bridge_value COMMAND aura_bridge_value_tests)
+    add_test(NAME export_selection COMMAND aura_export_selection_tests)
 endif()
 
 install(TARGETS aura-ui-qt RUNTIME DESTINATION bin)
