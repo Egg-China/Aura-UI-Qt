@@ -374,9 +374,10 @@ void MainWindow::applyExportFiles(const BridgeValue &listing)
     const std::optional<QString> token = listing.optionalString(QStringLiteral("token"));
     ExportDialog *dialog = nullptr;
     if (token.has_value() && !token->isEmpty()) {
+        // Tokenized replies must match their owning dialog; dropping them prevents stale
+        // traffic from clearing an unrelated dialog's pending selection state.
         dialog = m_exportDialogs.value(*token).data();
-    }
-    if (dialog == nullptr) {
+    } else {
         dialog = m_exportDialog;
     }
     if (dialog == nullptr) {
