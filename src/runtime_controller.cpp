@@ -64,11 +64,15 @@ RuntimeController::RuntimeController(MainWindow *window, QObject *parent)
                             BridgeValue::map(std::move(params)));
     });
     connect(m_window, &MainWindow::exportFilesRequested, this,
-            [this](const QString &instanceId, const QString &path) {
-        sendFrontendRequest(
-            QStringLiteral("core.instance.export.files.list"),
-            BridgeValue::map({{QStringLiteral("id"), BridgeValue::string(instanceId)},
-                              {QStringLiteral("path"), BridgeValue::string(path)}}));
+            [this](const QString &instanceId, const QString &token, const QString &path) {
+        std::vector<BridgeValueMapEntry> params;
+        params.push_back({QStringLiteral("id"), BridgeValue::string(instanceId)});
+        params.push_back({QStringLiteral("path"), BridgeValue::string(path)});
+        if (!token.isEmpty()) {
+            params.push_back({QStringLiteral("token"), BridgeValue::string(token)});
+        }
+        sendFrontendRequest(QStringLiteral("core.instance.export.files.list"),
+                            BridgeValue::map(std::move(params)));
     });
     connect(m_window, &MainWindow::refreshRequested, this, [this]() {
         requestLauncherState();
@@ -280,6 +284,9 @@ void RuntimeController::handleReply(const AuraProtocol::Envelope &reply)
     if (reply.kind == AuraProtocol::Envelope::Kind::Error) {
         m_window->showNotification(tr("Command failed"),
                                    QStringLiteral("%1: %2").arg(reply.code, reply.message));
+        if (method == QStringLiteral("core.instance.export.files.list")) {
+            m_window->applyExportFilesError(reply.message);
+        }
         return;
     }
     if (method == QStringLiteral("ui.ready")) {

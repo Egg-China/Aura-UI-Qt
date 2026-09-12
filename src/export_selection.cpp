@@ -28,12 +28,18 @@ void ExportSelectionTree::reset(const std::vector<ExportFileEntryData> &rootEntr
 
 bool ExportSelectionTree::applyListing(const QString &path,
                                        const std::vector<ExportFileEntryData> &entries,
-                                       bool truncated, bool forceChecked, QString *error)
+                                       bool truncated, QString *error)
 {
     Node *node = m_root == nullptr ? nullptr : find(m_root.get(), path);
     if (node == nullptr || !node->entry.directory) {
         if (error != nullptr) {
             *error = QStringLiteral("export listing target is not a directory: %1").arg(path);
+        }
+        return false;
+    }
+    if (!node->pendingRequest) {
+        if (error != nullptr) {
+            *error = QStringLiteral("unexpected export listing: %1").arg(path);
         }
         return false;
     }
@@ -43,6 +49,9 @@ bool ExportSelectionTree::applyListing(const QString &path,
         }
         return false;
     }
+    // A fully checked directory propagates its complete selection to materialized children;
+    // unchecked or partial directories keep the launcher's suggested defaults.
+    const bool forceChecked = node->checked;
     node->pendingRequest = false;
     node->childrenLoaded = true;
     node->truncated = truncated;
@@ -96,6 +105,14 @@ void ExportSelectionTree::markPending(const QString &path, bool pending)
 const ExportSelectionTree::Node *ExportSelectionTree::nodeAt(const QString &path) const
 {
     return m_root == nullptr ? nullptr : find(m_root.get(), path);
+}
+
+void ExportSelectionTree::clearPending()
+{
+    if (m_root == nullptr) {
+        return;
+    }
+    clearPendingIn(*m_root);
 }
 
 bool ExportSelectionTree::busy() const
@@ -181,7 +198,7 @@ std::pair<bool, bool> ExportSelectionTree::recompute(std::vector<std::unique_ptr
     bool anySelected = false;
     for (const std::unique_ptr<Node> &childPtr : nodes) {
         Node &node = *childPtr;
-        if (node.childrenLoaded) {
+        if (node.childrenLoaded && !node.children.empty()) {
             const std::pair<bool, bool> state = recompute(node.children);
             node.checked = state.first;
             node.partial = state.second && !state.first;
@@ -222,6 +239,14 @@ void ExportSelectionTree::collectInto(const Node &node, QStringList &paths,
     }
     for (const std::unique_ptr<Node> &child : node.children) {
         collectInto(*child, paths, error, ok);
+    }
+}
+
+void ExportSelectionTree::clearPendingIn(Node &node)
+{
+    node.pendingRequest = false;
+    for (const std::unique_ptr<Node> &child : node.children) {
+        clearPendingIn(*child);
     }
 }
 

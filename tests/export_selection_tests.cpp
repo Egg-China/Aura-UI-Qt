@@ -27,12 +27,13 @@ private slots:
                     entry(QStringLiteral("servers.dat"), QStringLiteral("servers.dat"), false, false)},
                    false);
         QCOMPARE(tree.unloadedSelectedDirectory(), QStringLiteral("mods"));
+        tree.markPending(QStringLiteral("mods"), true);
         QString error;
         QVERIFY(tree.applyListing(
             QStringLiteral("mods"),
             {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, true),
              entry(QStringLiteral("private.jar"), QStringLiteral("mods/private.jar"), false, true)},
-            false, true, &error));
+            false, &error));
         const std::optional<QStringList> paths = tree.collect(&error);
         QVERIFY(paths.has_value());
         const QStringList expected{QStringLiteral("mods"), QStringLiteral("mods/a.jar"),
@@ -44,12 +45,13 @@ private slots:
     {
         ExportSelectionTree tree;
         tree.reset({entry(QStringLiteral("mods"), QStringLiteral("mods"), true, true)}, false);
+        tree.markPending(QStringLiteral("mods"), true);
         QString error;
         QVERIFY(tree.applyListing(
             QStringLiteral("mods"),
             {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, true),
              entry(QStringLiteral("private.jar"), QStringLiteral("mods/private.jar"), false, true)},
-            false, true, &error));
+            false, &error));
         tree.setNodeChecked(QStringLiteral("mods/private.jar"), false);
         const ExportSelectionTree::Node *mods = tree.nodeAt(QStringLiteral("mods"));
         QVERIFY(mods != nullptr);
@@ -65,11 +67,12 @@ private slots:
     {
         ExportSelectionTree tree;
         tree.reset({entry(QStringLiteral("mods"), QStringLiteral("mods"), true, true)}, false);
+        tree.markPending(QStringLiteral("mods"), true);
         QString error;
         QVERIFY(tree.applyListing(
             QStringLiteral("mods"),
             {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, true)},
-            true, true, &error));
+            true, &error));
         QVERIFY(!tree.collect(&error).has_value());
         QVERIFY(error.contains(QStringLiteral("truncated")));
     }
@@ -78,13 +81,14 @@ private slots:
     {
         ExportSelectionTree tree;
         tree.reset({entry(QStringLiteral("mods"), QStringLiteral("mods"), true, false)}, false);
+        tree.markPending(QStringLiteral("mods"), true);
         QString error;
         // Manual expansion keeps suggested defaults; unseen truncated entries stay excluded.
         QVERIFY(tree.applyListing(
             QStringLiteral("mods"),
             {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, true),
              entry(QStringLiteral("b.jar"), QStringLiteral("mods/b.jar"), false, false)},
-            true, false, &error));
+            true, &error));
         const ExportSelectionTree::Node *mods = tree.nodeAt(QStringLiteral("mods"));
         QVERIFY(mods != nullptr);
         QVERIFY(!mods->checked);
@@ -102,10 +106,11 @@ private slots:
         QString error;
         QVERIFY(!tree.collect(&error).has_value());
         QVERIFY(error.contains(QStringLiteral("loading")));
+        tree.markPending(QStringLiteral("mods"), true);
         QVERIFY(tree.applyListing(
             QStringLiteral("mods"),
             {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, true)},
-            false, true, &error));
+            false, &error));
         tree.setNodeChecked(QStringLiteral("mods"), false);
         const std::optional<QStringList> empty = tree.collect(&error);
         QVERIFY(empty.has_value());
@@ -116,6 +121,7 @@ private slots:
     {
         ExportSelectionTree tree;
         tree.reset({entry(QStringLiteral("mods"), QStringLiteral("mods"), true, true)}, false);
+        QVERIFY(tree.busy() == false);
         tree.markPending(QStringLiteral("mods"), true);
         QVERIFY(tree.busy());
         QVERIFY(tree.unloadedSelectedDirectory().isEmpty());
@@ -123,24 +129,88 @@ private slots:
         QVERIFY(tree.applyListing(
             QStringLiteral("mods"),
             {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, true)},
-            false, true, &error));
+            false, &error));
         QVERIFY(!tree.busy());
+    }
+
+    void rejectsUnexpectedListings()
+    {
+        ExportSelectionTree tree;
+        tree.reset({entry(QStringLiteral("mods"), QStringLiteral("mods"), true, true)}, false);
+        QString error;
+        QVERIFY(!tree.applyListing(
+            QStringLiteral("mods"),
+            {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, true)},
+            false, &error));
+        QVERIFY(error.contains(QStringLiteral("unexpected")));
+    }
+
+    void derivesForceFromCheckedState()
+    {
+        ExportSelectionTree tree;
+        tree.reset({entry(QStringLiteral("mods"), QStringLiteral("mods"), true, false)}, false);
+        tree.setNodeChecked(QStringLiteral("mods"), true);
+        tree.markPending(QStringLiteral("mods"), true);
+        QString error;
+        QVERIFY(tree.applyListing(
+            QStringLiteral("mods"),
+            {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, false),
+             entry(QStringLiteral("b.jar"), QStringLiteral("mods/b.jar"), false, true)},
+            false, &error));
+        const std::optional<QStringList> paths = tree.collect(&error);
+        QVERIFY(paths.has_value());
+        const QStringList expected{QStringLiteral("mods"), QStringLiteral("mods/a.jar"),
+                                   QStringLiteral("mods/b.jar")};
+        QCOMPARE(*paths, expected);
+    }
+
+    void keepsExplicitEmptyDirectorySelection()
+    {
+        ExportSelectionTree tree;
+        tree.reset({entry(QStringLiteral("empty"), QStringLiteral("empty"), true, false)}, false);
+        tree.setNodeChecked(QStringLiteral("empty"), true);
+        tree.markPending(QStringLiteral("empty"), true);
+        QString error;
+        QVERIFY(tree.applyListing(QStringLiteral("empty"), {}, false, &error));
+        const ExportSelectionTree::Node *empty = tree.nodeAt(QStringLiteral("empty"));
+        QVERIFY(empty != nullptr);
+        QVERIFY(empty->checked);
+        const std::optional<QStringList> paths = tree.collect(&error);
+        QVERIFY(paths.has_value());
+        QCOMPARE(*paths, QStringList{QStringLiteral("empty")});
+    }
+
+    void clearPendingUnblocksCollection()
+    {
+        ExportSelectionTree tree;
+        tree.reset({entry(QStringLiteral("mods"), QStringLiteral("mods"), true, true)}, false);
+        tree.markPending(QStringLiteral("mods"), true);
+        QVERIFY(tree.busy());
+        tree.clearPending();
+        QVERIFY(!tree.busy());
+        QString error;
+        QVERIFY(!tree.applyListing(
+            QStringLiteral("mods"),
+            {entry(QStringLiteral("a.jar"), QStringLiteral("mods/a.jar"), false, true)},
+            false, &error));
     }
 
     void recomputesNestedAncestors()
     {
         ExportSelectionTree tree;
         tree.reset({entry(QStringLiteral("config"), QStringLiteral("config"), true, true)}, false);
+        tree.markPending(QStringLiteral("config"), true);
         QString error;
         QVERIFY(tree.applyListing(
             QStringLiteral("config"),
             {entry(QStringLiteral("deep"), QStringLiteral("config/deep"), true, true)},
-            false, true, &error));
+            false, &error));
+        tree.markPending(QStringLiteral("config/deep"), true);
         QVERIFY(tree.applyListing(
             QStringLiteral("config/deep"),
             {entry(QStringLiteral("a.cfg"), QStringLiteral("config/deep/a.cfg"), false, true),
              entry(QStringLiteral("b.cfg"), QStringLiteral("config/deep/b.cfg"), false, true)},
-            false, true, &error));
+            false, &error));
         tree.setNodeChecked(QStringLiteral("config/deep/b.cfg"), false);
         const ExportSelectionTree::Node *config = tree.nodeAt(QStringLiteral("config"));
         const ExportSelectionTree::Node *deep = tree.nodeAt(QStringLiteral("config/deep"));

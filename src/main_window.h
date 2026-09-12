@@ -6,6 +6,7 @@
 
 #include "bridge_value.h"
 
+#include <QHash>
 #include <QMainWindow>
 #include <QPointer>
 #include <QString>
@@ -31,6 +32,7 @@ public:
     void setRoute(const QString &route);
     void showNotification(const QString &title, const QString &message);
     void applyExportFiles(const BridgeValue &listing);
+    void applyExportFilesError(const QString &message);
 
 signals:
     void interfaceReady();
@@ -38,7 +40,7 @@ signals:
     void importRequested(const QString &source, const QString &name, const QString &group);
     void exportRequested(const QString &instanceId, const QString &output, const QString &name,
                          const QStringList &whitelist);
-    void exportFilesRequested(const QString &instanceId, const QString &path);
+    void exportFilesRequested(const QString &instanceId, const QString &token, const QString &path);
     void refreshRequested();
     void pluginActionRequested(const QString &actionId);
     void launcherShutdownRequested();
@@ -85,6 +87,7 @@ private:
     QPushButton *m_refresh = nullptr;
     QPushButton *m_shutdown = nullptr;
     QPointer<ExportDialog> m_exportDialog;
+    QHash<QString, QPointer<ExportDialog>> m_exportDialogs;
     std::vector<Instance> m_models;
     bool m_readyEmitted = false;
 };

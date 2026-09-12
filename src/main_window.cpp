@@ -342,15 +342,25 @@ void MainWindow::emitExport()
         }
     }
     auto *dialog = new ExportDialog(instanceName, this);
+    const QString token = dialog->token();
+    const QPointer<ExportDialog> tracked = dialog;
     m_exportDialog = dialog;
+    m_exportDialogs.insert(token, dialog);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    connect(dialog, &ExportDialog::pathRequested, this, [this, instanceId](const QString &path) {
-        emit exportFilesRequested(instanceId, path);
+    connect(dialog, &ExportDialog::pathRequested, this,
+            [this, instanceId](const QString &token, const QString &path) {
+        emit exportFilesRequested(instanceId, token, path);
     });
     connect(dialog, &ExportDialog::acceptedExport, this,
             [this, instanceId](const QString &output, const QString &name,
                                const QStringList &whitelist) {
         emit exportRequested(instanceId, output, name, whitelist);
+    });
+    connect(dialog, &QDialog::finished, this, [this, token, tracked]() {
+        m_exportDialogs.remove(token);
+        if (m_exportDialog == tracked) {
+            m_exportDialog = nullptr;
+        }
     });
     dialog->show();
     dialog->requestRoot();
@@ -358,47 +368,63 @@ void MainWindow::emitExport()
 
 void MainWindow::applyExportFiles(const BridgeValue &listing)
 {
-    if (m_exportDialog == nullptr || listing.type() != BridgeValue::Type::Map) {
+    if (listing.type() != BridgeValue::Type::Map) {
+        return;
+    }
+    const std::optional<QString> token = listing.optionalString(QStringLiteral("token"));
+    ExportDialog *dialog = nullptr;
+    if (token.has_value() && !token->isEmpty()) {
+        dialog = m_exportDialogs.value(*token).data();
+    }
+    if (dialog == nullptr) {
+        dialog = m_exportDialog;
+    }
+    if (dialog == nullptr) {
         return;
     }
     const BridgeValue *error = listing.entry(QStringLiteral("error"));
     if (error != nullptr && error->type() == BridgeValue::Type::String) {
-        m_exportDialog->applyListingError(error->toString());
+        dialog->applyListingError(error->toString());
         return;
     }
     const std::optional<QString> path = listing.optionalString(QStringLiteral("path"));
     const BridgeValue *entries = listing.entry(QStringLiteral("entries"));
     const BridgeValue *truncated = listing.entry(QStringLiteral("truncated"));
     if (!path.has_value() || entries == nullptr
-            || entries->type() != BridgeValue::Type::Array) {
-        m_exportDialog->applyListingError(tr("Malformed export file listing"));
+            || entries->type() != BridgeValue::Type::Array
+            || truncated == nullptr || truncated->type() != BridgeValue::Type::Boolean) {
+        dialog->applyListingError(tr("Malformed export file listing"));
         return;
     }
     std::vector<ExportFileEntryData> parsed;
     for (const BridgeValue &raw : entries->arrayValues()) {
-        if (raw.type() != BridgeValue::Type::Map) {
-            continue;
+        const BridgeValue *directory = raw.entry(QStringLiteral("directory"));
+        const BridgeValue *suggested = raw.entry(QStringLiteral("suggested"));
+        if (raw.type() != BridgeValue::Type::Map
+                || directory == nullptr || directory->type() != BridgeValue::Type::Boolean
+                || suggested == nullptr || suggested->type() != BridgeValue::Type::Boolean) {
+            dialog->applyListingError(tr("Malformed export file listing"));
+            return;
         }
         const std::optional<QString> name = raw.optionalString(QStringLiteral("name"));
         const std::optional<QString> entryPath = raw.optionalString(QStringLiteral("path"));
-        if (!name.has_value() || !entryPath.has_value()) {
-            continue;
+        if (!name.has_value() || name->isEmpty()
+                || !entryPath.has_value() || entryPath->isEmpty()) {
+            dialog->applyListingError(tr("Malformed export file listing"));
+            return;
         }
-        ExportFileEntryData entry{*name, *entryPath, false, false};
-        const BridgeValue *directory = raw.entry(QStringLiteral("directory"));
-        const BridgeValue *suggested = raw.entry(QStringLiteral("suggested"));
-        entry.directory = directory != nullptr
-            && directory->type() == BridgeValue::Type::Boolean
-            && directory->toBoolean();
-        entry.suggested = suggested != nullptr
-            && suggested->type() == BridgeValue::Type::Boolean
-            && suggested->toBoolean();
-        parsed.push_back(entry);
+        parsed.push_back(ExportFileEntryData{*name, *entryPath,
+                                             directory->toBoolean(),
+                                             suggested->toBoolean()});
     }
-    const bool truncatedFlag = truncated != nullptr
-        && truncated->type() == BridgeValue::Type::Boolean
-        && truncated->toBoolean();
-    m_exportDialog->applyListing(*path, parsed, truncatedFlag);
+    dialog->applyListing(*path, parsed, truncated->toBoolean());
+}
+
+void MainWindow::applyExportFilesError(const QString &message)
+{
+    if (m_exportDialog != nullptr) {
+        m_exportDialog->applyListingError(message);
+    }
 }
 
 void MainWindow::emitLaunch()

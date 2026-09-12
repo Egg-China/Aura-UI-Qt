@@ -9,6 +9,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QUuid>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -20,6 +21,7 @@ constexpr int kPathRole = Qt::UserRole;
 
 ExportDialog::ExportDialog(const QString &instanceName, QWidget *parent)
     : QDialog(parent)
+    , m_token(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
     setWindowTitle(tr("Export MultiMC archive"));
     setModal(true);
@@ -67,7 +69,16 @@ ExportDialog::ExportDialog(const QString &instanceName, QWidget *parent)
 
 void ExportDialog::requestRoot()
 {
-    emit pathRequested(QString());
+    m_rootPending = true;
+    emit pathRequested(m_token, QString());
+}
+
+void ExportDialog::reject()
+{
+    m_rootPending = false;
+    m_model.clearPending();
+    abortCollection(QString());
+    QDialog::reject();
 }
 
 void ExportDialog::applyListing(const QString &path,
@@ -75,9 +86,10 @@ void ExportDialog::applyListing(const QString &path,
                                 bool truncated)
 {
     if (m_model.root() == nullptr) {
-        if (!path.isEmpty()) {
+        if (!path.isEmpty() || !m_rootPending) {
             return;
         }
+        m_rootPending = false;
         m_model.reset(entries, truncated);
         m_rootLoaded = true;
         m_customSupported = !truncated;
@@ -90,10 +102,8 @@ void ExportDialog::applyListing(const QString &path,
         return;
     }
 
-    const bool forced = m_forcedPaths.contains(path);
-    m_forcedPaths.remove(path);
     QString error;
-    if (!m_model.applyListing(path, entries, truncated, forced, &error)) {
+    if (!m_model.applyListing(path, entries, truncated, &error)) {
         m_statusLabel->setText(error);
         abortCollection(error);
         return;
@@ -104,6 +114,8 @@ void ExportDialog::applyListing(const QString &path,
 
 void ExportDialog::applyListingError(const QString &message)
 {
+    m_rootPending = false;
+    m_model.clearPending();
     m_statusLabel->setText(message);
     abortCollection(message);
 }
@@ -154,7 +166,7 @@ void ExportDialog::onItemExpanded(QTreeWidgetItem *item)
     m_model.setNodeExpanded(path, true);
     if (!node->childrenLoaded && !node->pendingRequest) {
         m_model.markPending(path, true);
-        emit pathRequested(path);
+        emit pathRequested(m_token, path);
     }
 }
 
@@ -211,8 +223,7 @@ void ExportDialog::pumpCollection()
     const QString next = m_model.unloadedSelectedDirectory();
     if (!next.isEmpty()) {
         m_model.markPending(next, true);
-        m_forcedPaths.insert(next);
-        emit pathRequested(next);
+        emit pathRequested(m_token, next);
         return;
     }
     QString error;

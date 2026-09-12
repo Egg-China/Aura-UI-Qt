@@ -46,9 +46,9 @@ public:
     /// Returns the synthetic root node, or `nullptr` before the root level arrives.
     const Node *root() const { return m_root.get(); }
 
-    /// Applies one lazily loaded directory level.
+    /// Applies one lazily loaded directory level; `forceChecked` derives from the node state.
     bool applyListing(const QString &path, const std::vector<ExportFileEntryData> &entries,
-                      bool truncated, bool forceChecked, QString *error);
+                      bool truncated, QString *error);
 
     /// Toggles one node and propagates the state through loaded descendants.
     void setNodeChecked(const QString &path, bool checked);
@@ -58,6 +58,9 @@ public:
 
     /// Marks one directory as having a listing request in flight.
     void markPending(const QString &path, bool pending);
+
+    /// Clears every in-flight marker after a listing failure.
+    void clearPending();
 
     /// Returns one node by path, or `nullptr` when absent.
     const Node *nodeAt(const QString &path) const;
@@ -78,6 +81,7 @@ private:
     static void propagateDown(Node *node, bool checked);
     static std::pair<bool, bool> recompute(std::vector<std::unique_ptr<Node>> &nodes);
     static void collectInto(const Node &node, QStringList &paths, QString *error, bool *ok);
+    static void clearPendingIn(Node &node);
     static bool busyIn(const Node &node);
     static QString unloadedIn(const Node &node);
 
